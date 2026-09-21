@@ -1,0 +1,11 @@
+# Zunächst alles ignorieren
+*
+
+# Ordner weiterhin durchsuchen
+#!*/
+
+# Diese Dateien erlauben
+!*.ipynb
+!README.md
+!.gitignore
+!*.py
