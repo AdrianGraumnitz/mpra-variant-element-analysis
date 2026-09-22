@@ -1,8 +1,8 @@
 # Zunächst alles ignorieren
 *
 
-# Ordner weiterhin durchsuchen
-#!*/
+# scripts Verzeichnis weiterhin durchsuchen
+!scripts/
 
 # Diese Dateien erlauben
 !*.ipynb
