@@ -76,7 +76,8 @@ def rename_aggregate_columns(
 
 def merge_aggregate_tables(
         aggregate_tables: list[pd.DataFrame],
-        on = 'oligo_name'
+        how: str = 'outer',
+        on: str | list[str] = 'oligo_name'
         ) -> pd.DataFrame:
 
     """Merge aggregated tables using outer joins on a shared key.
@@ -102,8 +103,84 @@ def merge_aggregate_tables(
     for table in aggregate_tables[1:]:
         merged = merged.merge(
             table,
-            how ='outer',
+            how = how,
             on = on
         )
 
     return merged
+
+def reshape_celltype_variance(
+        var_table: pd.DataFrame,
+        cell_types: list
+        )-> pd.DataFrame:
+    """Reshape cell-type-specific effect-size variances to long format.
+
+    Args:
+        var_table: DataFrame containing ``oligo_name`` and a
+            ``var_{cell_type}`` column for each requested cell type.
+        cell_types: Cell-type labels to include, such as
+            ``["NGN2", "WTC11"]``.
+
+    Returns:
+        A DataFrame with columns ``oligo_name``, ``cell_type``, and
+        ``variance``, containing one row per input row and requested
+        cell type. Cell-type labels have the ``var_`` prefix removed.
+
+    Notes:
+        Existing variance values are reshaped without recalculation.
+        Missing values are retained. The original index and unselected
+        columns are discarded. The input DataFrame is not modified.
+
+    Raises:
+        KeyError: If ``oligo_name`` or a requested variance column
+            is missing.
+    """
+    
+    var_long_table = var_table.melt(
+        id_vars=['oligo_name'],
+        value_vars= [f'var_{i}' for i in cell_types],
+        var_name = 'cell_type',
+        value_name = 'variance')
+    var_long_table['cell_type'] = (
+        var_long_table['cell_type']
+        .str.removeprefix('var_')
+    )
+    return var_long_table
+
+def reshape_celltype_mean(
+        mean_table: pd.DataFrame,
+        cell_types: list
+        )-> pd.DataFrame:
+    """Reshape cell-type-specific mean effect sizes to long format.
+
+    Args:
+        mean_table: DataFrame containing ``oligo_name`` and a
+            ``mean_{cell_type}`` column for each requested cell type.
+        cell_types: Cell-type labels to include, such as
+            ``["NGN2", "WTC11"]``.
+
+    Returns:
+        A DataFrame with columns ``oligo_name``, ``cell_type``, and
+        ``mean``, containing one row per input row and requested
+        cell type. Cell-type labels have the ``mean_`` prefix removed.
+
+    Notes:
+        Existing mean values are reshaped without recalculation.
+        Missing values are retained. The original index and unselected
+        columns are discarded. The input DataFrame is not modified.
+
+    Raises:
+        KeyError: If ``oligo_name`` or a requested mean column
+            is missing.
+    """
+    
+    mean_long_table = mean_table.melt(
+        id_vars=['oligo_name'],
+        value_vars= [f'mean_{i}' for i in cell_types],
+        var_name = 'cell_type',
+        value_name = 'mean')
+    mean_long_table['cell_type'] = (
+        mean_long_table['cell_type']
+        .str.removeprefix('mean_')
+    )
+    return mean_long_table
