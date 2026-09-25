@@ -154,9 +154,33 @@ def calculate_effect_size_per_replicate(
     """
     
     num_replicates = filter_normalize_data.columns.str.contains('DNA_norm').sum()
+
     for i in range(1, num_replicates + 1): 
         filter_normalize_data[f'effect_size_{i}'] = np.log2(
             filter_normalize_data[f'RNA_norm_{i}'] 
             / filter_normalize_data[f'DNA_norm_{i}'])
     
     return filter_normalize_data
+
+def count_barcodes_per_oligo(
+        oligo_per_barcode_table: pd.DataFrame
+        ) -> pd.DataFrame:
+    """Count rows per oligo as barcode counts.
+
+    Args:
+        oligo_per_barcode_table: DataFrame containing an ``oligo_name``
+            column, with one row per barcode.
+
+    Returns:
+        A DataFrame with columns ``oligo_name`` and ``n_barcodes``.
+
+    Notes:
+        Counts rows, not unique barcodes. Duplicate barcode rows are
+        counted separately. Rows with missing ``oligo_name`` are excluded.
+        The input DataFrame is not modified.
+    """
+    
+    return oligo_per_barcode_table.groupby(
+        by = 'oligo_name').size().reset_index(
+            name = 'n_barcodes'
+        )
