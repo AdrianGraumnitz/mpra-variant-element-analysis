@@ -1,4 +1,5 @@
 import pandas as pd
+import re
 
 def effect_sizes_long(
         barcode_oligo_effect_sizes: pd.DataFrame
@@ -184,3 +185,117 @@ def reshape_celltype_mean(
         .str.removeprefix('mean_')
     )
     return mean_long_table
+
+def group_to_oligo(snakeflow_data: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate barcode-level counts per oligo.
+
+    Args:
+        snakeflow_data: Barcode-level DataFrame containing ``oligo_name``,
+            ``barcode``, and count columns named ``dna_count_<number>``
+            or ``rna_count_<number>``. Replicate numbers do not need
+            to be consecutive.
+
+    Returns:
+        A DataFrame with one row per oligo, summed counts for each
+        detected count column, and ``unique_barcode_count`` containing
+        the number of distinct non-missing barcodes per oligo.
+
+    Raises:
+        ValueError: If no matching DNA or RNA count columns are found.
+        KeyError: If ``oligo_name`` or ``barcode`` is missing.
+
+    Notes:
+        Rows with missing ``oligo_name`` are excluded.
+        Missing count values are skipped when summing; groups with
+        only missing values receive a sum of zero.
+        The input DataFrame is not modified.
+    """
+    count_columns = [
+        column
+        for column in snakeflow_data.columns
+        if re.fullmatch(r"(dna|rna)_count_\d+", column)
+    ]
+
+    if not count_columns:
+        raise ValueError("Keine DNA- oder RNA-Count-Spalten gefunden.")
+
+    aggregations = {
+        column: (column, "sum")
+        for column in count_columns
+    }
+    aggregations["unique_barcode_count"] = ("barcode", "nunique")
+
+    return (
+        snakeflow_data
+        .groupby("oligo_name", as_index=False)
+        .agg(**aggregations)
+    )
+
+def group_cells_to_oligo(
+    input_snakeflow_files: dict[str, str],
+) -> dict[str, pd.DataFrame]:
+    """Load and aggregate barcode-level datasets per cell type.
+
+    Args:
+        input_snakeflow_files: Mapping of cell-type names to paths
+            of tab-separated barcode-level count files.
+
+    Returns:
+        A dictionary mapping each cell type to its aggregated
+        oligo-level DataFrame.
+    """
+    grouped_data = {}
+
+    for cell_type, file_path in input_snakeflow_files.items():
+        barcode_data = pd.read_table(file_path)
+        grouped_data[cell_type] = group_to_oligo(
+            barcode_data
+        )
+
+    return grouped_data
+
+def mapping(
+    grouped_data: dict[str, pd.DataFrame],
+    mapping_data: pd.DataFrame,
+    on: str,
+    element: str,
+    output_column:str,
+    target_on: str = "oligo_name"
+    
+) -> dict[str, pd.DataFrame]:
+    """Map a value column from a shared lookup table to each dataset.
+
+    Args:
+        grouped_data: Dictionary mapping cell-type names to DataFrames
+            containing the column specified by ``target_on``.
+        mapping_data: Shared lookup table containing the columns
+            specified by ``on`` and ``element``. Values in ``on``
+            must be unique.
+        on: Key column in the lookup table.
+        element: Source column containing the values to map.
+        output_column: Name of the column to add or overwrite
+            in each target DataFrame.
+        target_on: Key column in the target DataFrames.
+            Defaults to ``oligo_name``.
+
+    Returns:
+        The input dictionary with ``output_column`` added or
+        overwritten in each DataFrame. Keys without a matching
+        lookup entry receive a missing value.
+
+    Raises:
+        KeyError: If a required column is missing.
+        pandas.errors.InvalidIndexError: If lookup keys are not unique.
+
+    Notes:
+        Uses the same lookup table for every cell type.
+        Modifies the DataFrames in the input dictionary in place.
+    """
+    mapping_element = mapping_data.set_index(on)[element]
+
+    for cell_type, _ in grouped_data.items():
+        grouped_data[cell_type][output_column] = (
+            grouped_data[cell_type][target_on].map(mapping_element)
+        )
+
+    return grouped_data
