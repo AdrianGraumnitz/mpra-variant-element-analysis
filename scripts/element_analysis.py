@@ -261,8 +261,7 @@ def mapping(
     element: str,
     output_column:str,
     target_on: str = "oligo_name"
-    
-) -> dict[str, pd.DataFrame]:
+    ) -> dict[str, pd.DataFrame]:
     """Map a value column from a shared lookup table to each dataset.
 
     Args:
@@ -297,5 +296,45 @@ def mapping(
         grouped_data[cell_type][output_column] = (
             grouped_data[cell_type][target_on].map(mapping_element)
         )
+
+    return grouped_data
+
+def map_effect_size(
+    grouped_data: dict[str, pd.DataFrame],
+    bcalm_files: dict[str, str],
+) -> dict[str, pd.DataFrame]:
+    """Map cell-type-specific BCALM effect sizes to oligo-level datasets.
+
+    Args:
+        grouped_data: Dictionary mapping cell-type names to DataFrames
+            containing an ``oligo_name`` column.
+        bcalm_files: Dictionary mapping cell-type names to paths of
+            tab-separated BCALM files containing ``name`` and ``logFC``
+            columns. Values in ``name`` must be unique.
+
+    Returns:
+        The input dictionary with an ``effect_size`` column added or
+        overwritten in each DataFrame, using the corresponding BCALM
+        ``logFC`` values. Unmatched oligos receive missing values.
+
+    Raises:
+        KeyError: If a cell type has no corresponding BCALM file path
+            or a required column is missing.
+        pandas.errors.InvalidIndexError: If BCALM names are not unique.
+        FileNotFoundError: If a BCALM file does not exist.
+
+    Notes:
+        Modifies the input dictionary and its DataFrames in place.
+    """
+
+    for cell_type, data in grouped_data.items():
+        mapped_data = mapping(
+            grouped_data={cell_type: data},
+            mapping_data=pd.read_table(bcalm_files[cell_type]),
+            on="name",
+            element="logFC",
+            output_column="effect_size",
+        )
+        grouped_data[cell_type] = mapped_data[cell_type]
 
     return grouped_data
