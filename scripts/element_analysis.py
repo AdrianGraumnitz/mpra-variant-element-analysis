@@ -219,6 +219,7 @@ def group_to_oligo(snakeflow_data: pd.DataFrame) -> pd.DataFrame:
     if not count_columns:
         raise ValueError("Keine DNA- oder RNA-Count-Spalten gefunden.")
 
+    # dictionary for the agg function
     aggregations = {
         column: (column, "sum")
         for column in count_columns
@@ -228,7 +229,7 @@ def group_to_oligo(snakeflow_data: pd.DataFrame) -> pd.DataFrame:
     return (
         snakeflow_data
         .groupby("oligo_name", as_index=False)
-        .agg(**aggregations)
+        .agg(**aggregations) # the two stars unpacking the aggregation dictionary to arguments for the agg function
     )
 
 def group_cells_to_oligo(
@@ -299,42 +300,152 @@ def mapping(
 
     return grouped_data
 
-def map_effect_size(
+def map_column_from_files(
     grouped_data: dict[str, pd.DataFrame],
-    bcalm_files: dict[str, str],
+    files: dict[str, str],
+    on: str,
+    element: str,
+    output_column: str,
+    target_on: str = "oligo_name",
 ) -> dict[str, pd.DataFrame]:
-    """Map cell-type-specific BCALM effect sizes to oligo-level datasets.
+    """Map a column from cell-type-specific TSV files to each dataset.
 
     Args:
         grouped_data: Dictionary mapping cell-type names to DataFrames
-            containing an ``oligo_name`` column.
-        bcalm_files: Dictionary mapping cell-type names to paths of
-            tab-separated BCALM files containing ``name`` and ``logFC``
-            columns. Values in ``name`` must be unique.
+            containing the column specified by ``target_on``.
+        files: Dictionary mapping cell-type names to TSV file paths.
+        on: Column in each TSV file containing unique lookup keys.
+        element: Column in each TSV file containing the values to map.
+        output_column: Name of the column to add or overwrite.
+        target_on: Column in each target DataFrame containing the keys
+            to match against ``on``.
 
     Returns:
-        The input dictionary with an ``effect_size`` column added or
-        overwritten in each DataFrame, using the corresponding BCALM
-        ``logFC`` values. Unmatched oligos receive missing values.
+    A new dictionary containing copies of the input DataFrames with
+    ``output_column`` added or overwritten. Unmatched keys receive
+    missing values.
+
 
     Raises:
-        KeyError: If a cell type has no corresponding BCALM file path
-            or a required column is missing.
-        pandas.errors.InvalidIndexError: If BCALM names are not unique.
-        FileNotFoundError: If a BCALM file does not exist.
+        KeyError: If a cell type has no corresponding file path or a
+            required column is missing.
+        pandas.errors.InvalidIndexError: If lookup keys are not unique.
+        FileNotFoundError: If a specified file does not exist.
 
     Notes:
-        Modifies the input dictionary and its DataFrames in place.
+    The input dictionary and its DataFrames are not modified.
+    All existing rows are retained.
     """
-
+    mapped = {}
     for cell_type, data in grouped_data.items():
+        result = data.copy()
         mapped_data = mapping(
-            grouped_data={cell_type: data},
-            mapping_data=pd.read_table(bcalm_files[cell_type]),
-            on="name",
-            element="logFC",
-            output_column="effect_size",
+            grouped_data={cell_type: result},
+            mapping_data=pd.read_table(files[cell_type]),
+            on=on,
+            element=element,
+            output_column=output_column,
+            target_on=target_on,
         )
-        grouped_data[cell_type] = mapped_data[cell_type]
+        result = mapped_data[cell_type]
+        mapped[cell_type] = result
 
-    return grouped_data
+    return mapped
+
+def mean_for_label(
+    grouped_data: pd.DataFrame,
+    label: str = "scramble_ctrl",
+    column: str = "effect_size",
+) -> float:
+    """Calculate the mean of a numeric column for a specific label.
+
+    Args:
+        data: DataFrame containing a ``label`` column and the numeric
+            column to summarize.
+        label: Label identifying the rows to include.
+        column: Name of the numeric column to summarize.
+
+    Returns:
+        The mean of the selected values, or NaN if no valid values
+        are available.
+
+    Notes:
+        Missing values in the selected column are excluded.
+        The input DataFrame is not modified.
+
+    Raises:
+        KeyError: If ``label`` or the requested column is missing.
+    """
+    return grouped_data.loc[grouped_data["label"] == label, column].mean()
+
+
+def sd_for_label(
+    grouped_data: pd.DataFrame,
+    label: str = "scramble_ctrl",
+    column: str = "effect_size",
+) -> float:
+    """Calculate the sample standard deviation for a specific label.
+
+    Args:
+        data: DataFrame containing a ``label`` column and the numeric
+            column to summarize.
+        label: Label identifying the rows to include.
+        column: Name of the numeric column to summarize.
+
+    Returns:
+        The sample standard deviation of the selected values, or NaN
+        if fewer than two valid values are available.
+
+    Notes:
+        Missing values in the selected column are excluded.
+        Uses the sample standard deviation with ddof=1.
+        The input DataFrame is not modified.
+
+    Raises:
+        KeyError: If ``label`` or the requested column is missing.
+    """
+    return grouped_data.loc[grouped_data["label"] == label, column].std()
+
+def calculate_normalized_values(grouped_data: dict[str, pd.DataFrame],
+                                     label: str = 'scramble_ctrl',
+                                     column: str = 'effect_size'
+                                     )-> dict[str, pd.DataFrame]:
+    """Normalize values using control statistics separately per cell type.
+
+    Args:
+        grouped_data: Dictionary mapping cell-type names to DataFrames
+            containing a ``label`` column and the requested numeric column.
+        label: Label identifying the control rows.
+        column: Name of the numeric column to normalize.
+
+    Returns:
+        A new dictionary containing copies of the input DataFrames with
+        ``norm_effect_size`` added or overwritten.
+
+    Notes:
+        Normalization is calculated as (value - control_mean) / control_sd.
+        Control statistics are calculated separately for each DataFrame.
+        Missing control values are excluded from these calculations.
+        The control standard deviation uses ddof=1.
+        A zero or undefined control standard deviation can produce
+        infinite or missing normalized values.
+        The input dictionary and its DataFrames are not modified.
+
+    Raises:
+        KeyError: If ``label`` or the requested column is missing.
+    """
+    
+    normalized_data = {}
+    
+    for cell_type, data in grouped_data.items():
+        result = data.copy()
+        control_mean = mean_for_label(grouped_data = data,
+                                      label = label,
+                                      column = column)
+        control_sd = sd_for_label(grouped_data = data,
+                                  label = label,
+                                  column = column)
+        result['norm_effect_size'] = (data[column] - control_mean)/control_sd
+        normalized_data[cell_type] = result
+
+    return normalized_data
