@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import matplotlib_venn
 import seaborn as sns
 import pandas as pd
 import numpy as np
@@ -71,3 +72,37 @@ def cell_variance_box_plot(
         ax.set_ylabel('variance')
         ax.set_title(table['cell_type'])
         ax.set_title(filter_name)
+
+def plot_venn(grouped_data: dict[str, pd.DataFrame]
+              ):
+    """Plot the overlap of oligo names between two or three cell types.
+
+    Args:
+        grouped_data: Dictionary mapping cell types to DataFrames
+            containing an 'oligo_name' column. Dictionary keys are
+            used as diagram labels.
+
+    Returns:
+        None. Draws the Venn diagram on the current Matplotlib axes.
+
+    Raises:
+        KeyError: If 'oligo_name' is absent from a DataFrame.
+
+    Notes:
+        Duplicate oligo names are counted once per cell type.
+        For fewer than two or more than three cell types,
+        no diagram is drawn.
+        Input DataFrames are not modified.
+    """
+    
+    labels = list(grouped_data.keys())
+    subsets= [
+        set(data['oligo_name'])
+        for data in grouped_data.values() ]
+    
+    if len(grouped_data) == 2:
+        matplotlib_venn.venn2(subsets=subsets, set_labels=labels)
+    elif len(grouped_data) == 3:
+        matplotlib_venn.venn3(subsets=subsets, set_labels=labels)
+    else:
+        raise ValueError("Venn diagrams require two or three cell types.")

@@ -110,6 +110,63 @@ def merge_aggregate_tables(
 
     return merged
 
+def merge_cell_type_tables(grouped_data: dict[str,pd.DataFrame],
+               how: str = 'outer',
+               on: str = 'oligo_name',
+               )->pd.DataFrame:
+    """Merge cell-type DataFrames using a shared key column.
+
+    Append the cell-type key to every column name except the merge
+    column, then merge the tables sequentially. Each merge requires
+    unique key values in both tables.
+
+    Args:
+        grouped_data: Non-empty dictionary mapping cell types to
+            DataFrames.
+        how: Pandas merge strategy, such as 'inner' or 'outer'.
+        on: Shared column used to match rows across DataFrames.
+
+    Returns:
+        A merged DataFrame with one shared key column and cell-type
+        suffixes on all other columns. With a single input DataFrame,
+        returns that table with renamed columns.
+
+    Raises:
+        ValueError: If grouped_data is empty.
+        KeyError: If the merge column is absent from a DataFrame.
+        pandas.errors.MergeError: If a merge key is not unique
+            in either table participating in a merge.
+
+    Notes:
+        Input DataFrames are not modified. An outer merge retains
+        all keys and fills unmatched cell-type values with NaN.
+        Label columns remain separate for each cell type.
+    """
+
+    if not grouped_data:
+        raise ValueError("grouped_data must contain at least one DataFrame.")
+
+    keys = list(grouped_data.keys())
+
+    merge_table = grouped_data[keys[0]].rename(
+        columns = lambda column: (
+            column if column == on else f'{column}_{keys[0]}'
+        )
+    )
+    for key in keys[1:]:
+        next_table = grouped_data[key].rename(
+            columns = lambda column: (
+                column if column == on else f'{column}_{key}'
+            )
+        )
+        merge_table = merge_table.merge(
+            right = next_table,
+            on = on,
+            how = how,
+            validate = 'one_to_one'
+        )
+    return merge_table
+
 def reshape_celltype_variance(
         var_table: pd.DataFrame,
         cell_types: list
